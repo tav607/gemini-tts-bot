@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Generate voice sample files for all available voices"""
 
+import base64
 import sys
 import time
 from pathlib import Path
 
+import requests
+
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
-from google import genai
-from google.genai import types
 
 from gemini_tts_bot.config import GEMINI_API_KEY
 from gemini_tts_bot.services.audio import AudioConverter
@@ -21,37 +21,44 @@ SAMPLE_TEXT = "Hello! Nice to meet you. 你好！很高兴认识你。"
 # Output directory
 SAMPLES_DIR = Path(__file__).parent.parent / "samples"
 
+# API endpoint
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent"
 
-def generate_sample(client: genai.Client, voice_name: str) -> bytes | None:
-    """Generate a sample audio for a voice"""
+
+def generate_sample(voice_name: str) -> bytes | None:
+    """Generate a sample audio for a voice using REST API"""
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-pro-preview-tts",
-            contents=SAMPLE_TEXT,
-            config=types.GenerateContentConfig(
-                response_modalities=["AUDIO"],
-                speech_config=types.SpeechConfig(
-                    voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                            voice_name=voice_name,
-                        )
-                    )
-                ),
-            ),
-        )
+        url = f"{API_URL}?key={GEMINI_API_KEY}"
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": SAMPLE_TEXT}]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 1,
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {
+                    "voiceConfig": {
+                        "prebuiltVoiceConfig": {
+                            "voiceName": voice_name
+                        }
+                    }
+                }
+            }
+        }
 
-        # Extract audio data
-        if response.candidates:
-            for candidate in response.candidates:
-                if candidate.content and candidate.content.parts:
-                    for part in candidate.content.parts:
-                        if hasattr(part, "inline_data") and part.inline_data:
-                            if part.inline_data.mime_type.startswith("audio/"):
-                                import base64
-                                data = part.inline_data.data
-                                if isinstance(data, str):
-                                    return base64.b64decode(data)
-                                return data
+        response = requests.post(url, json=payload, timeout=60)
+        data = response.json()
+
+        if "candidates" in data:
+            inline_data = data["candidates"][0]["content"]["parts"][0].get("inlineData")
+            if inline_data and inline_data.get("data"):
+                return base64.b64decode(inline_data["data"])
+
+        if "error" in data:
+            print(f"  Error: {data['error'].get('message', 'Unknown error')}")
         return None
     except Exception as e:
         print(f"  Error: {e}")
@@ -66,7 +73,6 @@ def main():
     # Create output directory
     SAMPLES_DIR.mkdir(exist_ok=True)
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
     voice_names = list(VOICES.keys())
     total = len(voice_names)
 
@@ -89,7 +95,7 @@ def main():
 
         print(f"[{i}/{total}] {voice_name}: Generating...", end=" ", flush=True)
 
-        pcm_data = generate_sample(client, voice_name)
+        pcm_data = generate_sample(voice_name)
 
         if pcm_data:
             # Convert to MP3

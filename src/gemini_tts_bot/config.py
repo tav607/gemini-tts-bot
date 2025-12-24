@@ -12,8 +12,8 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
+# Load environment variables (override=True to prefer .env over system env vars)
+load_dotenv(override=True)
 
 # Environment variables
 TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
