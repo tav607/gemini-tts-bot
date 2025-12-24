@@ -36,9 +36,9 @@ if _allowed_ids:
 DEFAULT_VOICE = "Kore"
 DEFAULT_PROMPT = ""
 
-# Limits
+# Limits (Gemini TTS: 4000 bytes per field, 8000 bytes total for text+prompt)
 MAX_PROMPT_LENGTH = 500  # Maximum custom prompt length
-MAX_TEXT_LENGTH = 5000   # Maximum text length for TTS
+MAX_TEXT_LENGTH = 4000   # Maximum text length for TTS (API limit: 4000 bytes)
 
 
 def _get_config_path() -> Path:

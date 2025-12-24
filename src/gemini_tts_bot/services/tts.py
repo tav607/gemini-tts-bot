@@ -29,9 +29,65 @@ class TTSService:
     """Service for generating speech using Gemini TTS"""
 
     MODEL = "gemini-2.5-pro-preview-tts"
+    MAX_RETRIES = 3
 
     def __init__(self):
         self.api_key = GEMINI_API_KEY
+
+    def _parse_response(self, data: dict) -> TTSResult:
+        """Parse API response and extract audio data"""
+        # Log full response for debugging
+        logger.debug(f"API response: {data}")
+
+        if "candidates" in data:
+            candidate = data["candidates"][0]
+
+            # Check for finish reason that indicates blocked/failed generation
+            finish_reason = candidate.get("finishReason", "")
+            if finish_reason and finish_reason not in ("STOP", ""):
+                logger.warning(f"TTS finished with reason: {finish_reason}")
+                # Check for safety ratings
+                safety_ratings = candidate.get("safetyRatings", [])
+                if safety_ratings:
+                    logger.warning(f"Safety ratings: {safety_ratings}")
+                return TTSResult(
+                    audio_data=b"",
+                    success=False,
+                    error=f"Content blocked: {finish_reason}",
+                )
+
+            # Try to get audio data
+            content = candidate.get("content")
+            if content and "parts" in content:
+                inline_data = content["parts"][0].get("inlineData")
+                if inline_data and inline_data.get("data"):
+                    audio_data = base64.b64decode(inline_data["data"])
+                    return TTSResult(audio_data=audio_data, success=True)
+
+            # No content in candidate - log for debugging
+            logger.warning(f"No content in candidate: {candidate}")
+            return TTSResult(
+                audio_data=b"",
+                success=False,
+                error="No audio content generated",
+            )
+
+        if "error" in data:
+            error_msg = data["error"].get("message", "Unknown error")
+            logger.error(f"TTS API error: {error_msg}")
+            return TTSResult(
+                audio_data=b"",
+                success=False,
+                error=self._sanitize_error_message(error_msg),
+            )
+
+        # Unknown response format
+        logger.error(f"Unexpected API response format: {data}")
+        return TTSResult(
+            audio_data=b"",
+            success=False,
+            error="Unexpected API response",
+        )
 
     async def generate_monologue(
         self,
@@ -50,66 +106,61 @@ class TTSService:
         Returns:
             TTSResult with audio data or error
         """
-        try:
-            # Build content with optional style instructions
-            if custom_prompt:
-                content = f"[Instructions: {custom_prompt}]\n\n{text}"
-            else:
-                content = text
+        # Build content with optional style instructions
+        if custom_prompt:
+            content = f"[Instructions: {custom_prompt}]\n\n{text}"
+        else:
+            content = text
 
-            url = f"{API_URL}/{self.MODEL}:generateContent?key={self.api_key}"
-            payload = {
-                "contents": [
-                    {
-                        "role": "user",
-                        "parts": [{"text": content}]
-                    }
-                ],
-                "generationConfig": {
-                    "temperature": 1,
-                    "responseModalities": ["AUDIO"],
-                    "speechConfig": {
-                        "voiceConfig": {
-                            "prebuiltVoiceConfig": {
-                                "voiceName": voice_name
-                            }
+        url = f"{API_URL}/{self.MODEL}:generateContent?key={self.api_key}"
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": content}]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 1,
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {
+                    "voiceConfig": {
+                        "prebuiltVoiceConfig": {
+                            "voiceName": voice_name
                         }
                     }
                 }
             }
+        }
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(url, json=payload)
-                data = response.json()
+        last_error = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(timeout=90.0) as client:
+                    response = await client.post(url, json=payload)
+                    data = response.json()
 
-            if "candidates" in data:
-                inline_data = data["candidates"][0]["content"]["parts"][0].get("inlineData")
-                if inline_data and inline_data.get("data"):
-                    audio_data = base64.b64decode(inline_data["data"])
-                    return TTSResult(audio_data=audio_data, success=True)
+                result = self._parse_response(data)
+                if result.success:
+                    return result
 
-            if "error" in data:
-                error_msg = data["error"].get("message", "Unknown error")
-                logger.error(f"TTS API error: {error_msg}")
-                return TTSResult(
-                    audio_data=b"",
-                    success=False,
-                    error=self._sanitize_error_message(error_msg),
-                )
+                # If failed with "OTHER" or similar, retry
+                last_error = result.error
+                if attempt < self.MAX_RETRIES - 1:
+                    logger.warning(f"TTS attempt {attempt + 1} failed: {result.error}, retrying...")
+                    await asyncio.sleep(1)  # Brief delay before retry
 
-            return TTSResult(
-                audio_data=b"",
-                success=False,
-                error="No audio data in response",
-            )
+            except Exception as e:
+                logger.exception(f"TTS monologue attempt {attempt + 1} failed")
+                last_error = self._sanitize_error(e)
+                if attempt < self.MAX_RETRIES - 1:
+                    await asyncio.sleep(1)
 
-        except Exception as e:
-            logger.exception("TTS monologue generation failed")
-            return TTSResult(
-                audio_data=b"",
-                success=False,
-                error=self._sanitize_error(e),
-            )
+        return TTSResult(
+            audio_data=b"",
+            success=False,
+            error=last_error or "TTS generation failed after retries",
+        )
 
     async def generate_dialogue(
         self,
@@ -135,76 +186,70 @@ class TTSService:
                 error="Gemini TTS supports maximum 2 speakers",
             )
 
-        try:
-            # Build content with optional style instructions
-            if custom_prompt:
-                content = f"[Instructions: {custom_prompt}]\n\n{text}"
-            else:
-                content = text
+        # Build content with optional style instructions
+        if custom_prompt:
+            content = f"[Instructions: {custom_prompt}]\n\n{text}"
+        else:
+            content = text
 
-            # Build speaker voice configs
-            speaker_configs = []
-            for speaker_name, voice_name in speakers:
-                speaker_configs.append({
-                    "speaker": speaker_name,
-                    "voiceConfig": {
-                        "prebuiltVoiceConfig": {
-                            "voiceName": voice_name
-                        }
+        # Build speaker voice configs
+        speaker_configs = []
+        for speaker_name, voice_name in speakers:
+            speaker_configs.append({
+                "speaker": speaker_name,
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {
+                        "voiceName": voice_name
                     }
-                })
+                }
+            })
 
-            url = f"{API_URL}/{self.MODEL}:generateContent?key={self.api_key}"
-            payload = {
-                "contents": [
-                    {
-                        "role": "user",
-                        "parts": [{"text": content}]
-                    }
-                ],
-                "generationConfig": {
-                    "temperature": 1,
-                    "responseModalities": ["AUDIO"],
-                    "speechConfig": {
-                        "multiSpeakerVoiceConfig": {
-                            "speakerVoiceConfigs": speaker_configs
-                        }
+        url = f"{API_URL}/{self.MODEL}:generateContent?key={self.api_key}"
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": content}]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 1,
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {
+                    "multiSpeakerVoiceConfig": {
+                        "speakerVoiceConfigs": speaker_configs
                     }
                 }
             }
+        }
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(url, json=payload)
-                data = response.json()
+        last_error = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(timeout=90.0) as client:
+                    response = await client.post(url, json=payload)
+                    data = response.json()
 
-            if "candidates" in data:
-                inline_data = data["candidates"][0]["content"]["parts"][0].get("inlineData")
-                if inline_data and inline_data.get("data"):
-                    audio_data = base64.b64decode(inline_data["data"])
-                    return TTSResult(audio_data=audio_data, success=True)
+                result = self._parse_response(data)
+                if result.success:
+                    return result
 
-            if "error" in data:
-                error_msg = data["error"].get("message", "Unknown error")
-                logger.error(f"TTS API error: {error_msg}")
-                return TTSResult(
-                    audio_data=b"",
-                    success=False,
-                    error=self._sanitize_error_message(error_msg),
-                )
+                last_error = result.error
+                if attempt < self.MAX_RETRIES - 1:
+                    logger.warning(f"TTS dialogue attempt {attempt + 1} failed: {result.error}, retrying...")
+                    await asyncio.sleep(1)
 
-            return TTSResult(
-                audio_data=b"",
-                success=False,
-                error="No audio data in response",
-            )
+            except Exception as e:
+                logger.exception(f"TTS dialogue attempt {attempt + 1} failed")
+                last_error = self._sanitize_error(e)
+                if attempt < self.MAX_RETRIES - 1:
+                    await asyncio.sleep(1)
 
-        except Exception as e:
-            logger.exception("TTS dialogue generation failed")
-            return TTSResult(
-                audio_data=b"",
-                success=False,
-                error=self._sanitize_error(e),
-            )
+        return TTSResult(
+            audio_data=b"",
+            success=False,
+            error=last_error or "TTS generation failed after retries",
+        )
 
     def _sanitize_error_message(self, msg: str) -> str:
         """Sanitize API error message"""

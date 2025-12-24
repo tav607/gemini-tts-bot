@@ -190,6 +190,12 @@ async def voice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     elif data == "voice_back":
         # Go back to featured voices
+        # Delete the current message (may be a voice message that can't be edited)
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+
         keyboard = []
         row = []
         for voice_name in FEATURED_VOICES:
@@ -210,7 +216,7 @@ async def voice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         reply_markup = InlineKeyboardMarkup(keyboard)
         current_voice = config_manager.get(chat_id).default_voice
-        await query.edit_message_text(
+        await query.message.chat.send_message(
             f"**Select a voice to preview**\n\n"
             f"Current voice: {current_voice}\n\n"
             f"Tap a voice to hear a sample, then confirm to set as default.",
@@ -257,10 +263,9 @@ async def voice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         desc = get_voice_description(voice_name)
-        await query.message.reply_audio(
-            audio=mp3_data,
-            title=f"Voice: {voice_name}",
-            performer="Gemini TTS",
+        # Use voice message instead of audio to prevent Telegram's auto-play queue
+        await query.message.reply_voice(
+            voice=mp3_data,
             caption=f"**{voice_name}**\n{desc}",
             parse_mode="Markdown",
             reply_markup=reply_markup,
@@ -276,8 +281,15 @@ async def voice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         config_manager.set_voice(chat_id, voice_name)
         await query.answer(f"Voice set to {voice_name}!")
-        await query.edit_message_caption(
-            caption=f"**{voice_name}** - Now set as your default voice!",
+
+        # Delete the voice message and send a text confirmation
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+
+        await query.message.chat.send_message(
+            f"✓ Voice set to **{voice_name}**",
             parse_mode="Markdown",
         )
 
@@ -296,6 +308,16 @@ async def prompt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Check if user provided a new prompt
     if context.args:
         new_prompt = " ".join(context.args)
+
+        # Check for clear command
+        if new_prompt.lower() in ("clear", "reset", "none", "off"):
+            config_manager.set_prompt(chat_id, "")
+            await update.message.reply_text(
+                "Custom prompt cleared!",
+                parse_mode="Markdown",
+            )
+            return
+
         config_manager.set_prompt(chat_id, new_prompt)
         # Escape markdown special characters in user-provided prompt
         escaped_prompt = escape_markdown_v1(new_prompt)
@@ -315,12 +337,12 @@ async def prompt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"**Custom TTS Prompt**\n\n"
             f"Current: {current}\n\n"
             f"**Usage:**\n"
-            f"`/prompt <your instructions>`\n\n"
+            f"`/prompt <your instructions>`\n"
+            f"`/prompt clear` - Remove custom prompt\n\n"
             f"**Examples:**\n"
             f"• `/prompt Speak slowly and clearly`\n"
             f"• `/prompt Use a warm, friendly tone`\n"
-            f"• `/prompt Read with dramatic pauses`\n"
-            f"• `/prompt 用温柔缓慢的语气朗读`",
+            f"• `/prompt Read with dramatic pauses`",
             parse_mode="Markdown",
         )
 
