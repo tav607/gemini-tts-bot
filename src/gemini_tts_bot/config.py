@@ -35,6 +35,13 @@ if _allowed_ids:
 # Default values
 DEFAULT_VOICE = "Kore"
 DEFAULT_PROMPT = ""
+DEFAULT_MODEL = "flash"  # flash or pro
+
+# Model name mapping
+TTS_MODELS = {
+    "flash": "gemini-2.5-flash-preview-tts",
+    "pro": "gemini-2.5-pro-preview-tts",
+}
 
 # Limits (Gemini TTS: 4000 bytes per field, 8000 bytes total for text+prompt)
 MAX_PROMPT_LENGTH = 500  # Maximum custom prompt length
@@ -62,6 +69,7 @@ class UserConfig:
 
     default_voice: str = DEFAULT_VOICE
     custom_prompt: str = DEFAULT_PROMPT
+    tts_model: str = DEFAULT_MODEL
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -71,6 +79,7 @@ class UserConfig:
         return cls(
             default_voice=data.get("default_voice", DEFAULT_VOICE),
             custom_prompt=data.get("custom_prompt", DEFAULT_PROMPT),
+            tts_model=data.get("tts_model", DEFAULT_MODEL),
         )
 
 
@@ -156,6 +165,18 @@ class ConfigManager:
             config = self.get(chat_id)
             config.custom_prompt = prompt
             self._save()
+
+    def set_model(self, chat_id: int, model: str) -> bool:
+        """Set TTS model for a chat. Returns True if successful."""
+        if model not in TTS_MODELS:
+            logger.warning(f"Invalid model '{model}' for chat {chat_id}")
+            return False
+
+        with self._lock:
+            config = self.get(chat_id)
+            config.tts_model = model
+            self._save()
+            return True
 
     def reset(self, chat_id: int) -> None:
         """Reset configuration for a chat to defaults"""

@@ -23,6 +23,8 @@ from .handlers.commands import (
     help_command,
     voice_command,
     voice_callback,
+    model_command,
+    model_callback,
     prompt_command,
     reset_command,
 )
@@ -40,6 +42,7 @@ logger = logging.getLogger(__name__)
 BOT_COMMANDS = [
     BotCommand("start", "Show welcome message and help"),
     BotCommand("voice", "Choose your default voice"),
+    BotCommand("model", "Switch TTS model (flash/pro)"),
     BotCommand("prompt", "Set custom TTS style"),
     BotCommand("reset", "Reset all settings to default"),
     BotCommand("help", "Show help message"),
@@ -105,11 +108,13 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("voice", voice_command))
+    application.add_handler(CommandHandler("model", model_command))
     application.add_handler(CommandHandler("prompt", prompt_command))
     application.add_handler(CommandHandler("reset", reset_command))
 
-    # Register callback handler for voice selection
+    # Register callback handlers for voice and model selection
     application.add_handler(CallbackQueryHandler(voice_callback, pattern=r"^voice_"))
+    application.add_handler(CallbackQueryHandler(model_callback, pattern=r"^model_"))
 
     # Register text message handler (must be last)
     application.add_handler(

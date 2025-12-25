@@ -8,7 +8,7 @@ from typing import Optional
 
 import httpx
 
-from ..config import GEMINI_API_KEY
+from ..config import GEMINI_API_KEY, TTS_MODELS, DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +28,14 @@ class TTSResult:
 class TTSService:
     """Service for generating speech using Gemini TTS"""
 
-    MODEL = "gemini-2.5-pro-preview-tts"
     MAX_RETRIES = 3
 
     def __init__(self):
         self.api_key = GEMINI_API_KEY
+
+    def _get_model_name(self, model: str) -> str:
+        """Get full model name from short name"""
+        return TTS_MODELS.get(model, TTS_MODELS[DEFAULT_MODEL])
 
     def _parse_response(self, data: dict) -> TTSResult:
         """Parse API response and extract audio data"""
@@ -94,6 +97,7 @@ class TTSService:
         text: str,
         voice_name: str = "Kore",
         custom_prompt: str = "",
+        model: str = DEFAULT_MODEL,
     ) -> TTSResult:
         """
         Generate speech for single-speaker text.
@@ -102,6 +106,7 @@ class TTSService:
             text: Text to convert to speech
             voice_name: Name of the voice to use
             custom_prompt: Additional instructions for TTS style
+            model: TTS model to use ("flash" or "pro")
 
         Returns:
             TTSResult with audio data or error
@@ -112,7 +117,8 @@ class TTSService:
         else:
             content = text
 
-        url = f"{API_URL}/{self.MODEL}:generateContent?key={self.api_key}"
+        model_name = self._get_model_name(model)
+        url = f"{API_URL}/{model_name}:generateContent?key={self.api_key}"
         payload = {
             "contents": [
                 {
@@ -167,6 +173,7 @@ class TTSService:
         text: str,
         speakers: list[tuple[str, str]],
         custom_prompt: str = "",
+        model: str = DEFAULT_MODEL,
     ) -> TTSResult:
         """
         Generate speech for multi-speaker dialogue.
@@ -175,6 +182,7 @@ class TTSService:
             text: Dialogue text with speaker names
             speakers: List of (speaker_name, voice_name) tuples
             custom_prompt: Additional instructions for TTS style
+            model: TTS model to use ("flash" or "pro")
 
         Returns:
             TTSResult with audio data or error
@@ -204,7 +212,8 @@ class TTSService:
                 }
             })
 
-        url = f"{API_URL}/{self.MODEL}:generateContent?key={self.api_key}"
+        model_name = self._get_model_name(model)
+        url = f"{API_URL}/{model_name}:generateContent?key={self.api_key}"
         payload = {
             "contents": [
                 {

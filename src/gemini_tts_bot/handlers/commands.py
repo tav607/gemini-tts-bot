@@ -20,7 +20,7 @@ def escape_markdown_v1(text: str) -> str:
     escape_chars = r"_*`["
     return re.sub(f"([{re.escape(escape_chars)}])", r"\\\1", text)
 
-from ..config import config_manager, is_allowed_chat, needs_commands_setup, mark_commands_set
+from ..config import config_manager, is_allowed_chat, needs_commands_setup, mark_commands_set, TTS_MODELS
 from ..services.tts import tts_service
 from ..services.audio import AudioConverter
 from ..utils.voices import (
@@ -36,6 +36,7 @@ from ..utils.voices import (
 _BOT_COMMANDS = [
     BotCommand("start", "Show welcome message and help"),
     BotCommand("voice", "Choose your default voice"),
+    BotCommand("model", "Switch TTS model (flash/pro)"),
     BotCommand("prompt", "Set custom TTS style"),
     BotCommand("reset", "Reset all settings to default"),
     BotCommand("help", "Show help message"),
@@ -78,6 +79,7 @@ Send me any text and I'll convert it to speech using Google's Gemini TTS.
 
 **Commands:**
 - /voice - Choose your default voice
+- /model - Switch TTS model (flash/pro)
 - /prompt - Set custom TTS style (pace, tone, etc.)
 - /reset - Reset all settings to default
 - /help - Show this help message
@@ -86,6 +88,7 @@ Send me any text and I'll convert it to speech using Google's Gemini TTS.
 """
     config = config_manager.get(chat_id)
     settings_text = f"- Voice: {config.default_voice}\n"
+    settings_text += f"- Model: {config.tts_model}\n"
     if config.custom_prompt:
         # Escape markdown special characters in user-provided prompt
         escaped_prompt = escape_markdown_v1(config.custom_prompt)
@@ -294,6 +297,90 @@ async def voice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
 
 
+async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /model command - show model selection menu"""
+    if not update.effective_chat or not update.message:
+        return
+
+    chat_id = update.effective_chat.id
+    if not is_allowed_chat(chat_id):
+        return
+
+    config = config_manager.get(chat_id)
+    current_model = config.tts_model
+
+    # Build inline keyboard
+    keyboard = []
+    for model_key, model_name in TTS_MODELS.items():
+        # Add checkmark for current model
+        label = f"✓ {model_key.upper()}" if model_key == current_model else model_key.upper()
+        keyboard.append([
+            InlineKeyboardButton(label, callback_data=f"model_set:{model_key}")
+        ])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        f"**Select TTS Model**\n\n"
+        f"Current: **{current_model.upper()}**\n"
+        f"`{TTS_MODELS[current_model]}`\n\n"
+        f"• **FLASH** - Faster, lower cost\n"
+        f"• **PRO** - Higher quality",
+        reply_markup=reply_markup,
+        parse_mode="Markdown",
+    )
+
+
+async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle model selection callbacks"""
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    await query.answer()
+
+    chat_id = query.message.chat.id
+    if not is_allowed_chat(chat_id):
+        return
+
+    data = query.data
+
+    if data.startswith("model_set:"):
+        new_model = data.split(":", 1)[1]
+        if new_model not in TTS_MODELS:
+            await query.answer("Invalid model", show_alert=True)
+            return
+
+        config = config_manager.get(chat_id)
+        old_model = config.tts_model
+
+        if new_model == old_model:
+            # Delete the menu and confirm
+            try:
+                await query.delete_message()
+            except Exception:
+                pass
+            await query.message.chat.send_message(
+                f"✓ Already using **{new_model.upper()}**",
+                parse_mode="Markdown",
+            )
+            return
+
+        config_manager.set_model(chat_id, new_model)
+
+        # Delete the selection menu
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+
+        # Send confirmation message
+        await query.message.chat.send_message(
+            f"✓ Switched to **{new_model.upper()}**",
+            parse_mode="Markdown",
+        )
+
+
 async def prompt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /prompt command"""
     if not update.effective_chat or not update.message:
@@ -363,6 +450,7 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"Settings have been reset to defaults!\n\n"
         f"**Current Settings:**\n"
         f"- Voice: {config.default_voice}\n"
+        f"- Model: {config.tts_model}\n"
         f"- Custom Prompt: (none)",
         parse_mode="Markdown",
     )

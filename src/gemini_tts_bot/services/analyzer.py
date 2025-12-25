@@ -70,6 +70,12 @@ class DialogueAnalyzer:
         if not speakers:
             return DialogueAnalysis(is_dialogue=False, speakers=[])
 
+        # Gemini TTS multi-speaker mode requires exactly 2 speakers
+        # If only 1 speaker detected, treat as monologue
+        if len(speakers) == 1:
+            logger.info(f"Only 1 speaker detected ({speakers[0]}), treating as monologue")
+            return DialogueAnalysis(is_dialogue=False, speakers=[])
+
         if len(speakers) > 2:
             return DialogueAnalysis(
                 is_dialogue=True,

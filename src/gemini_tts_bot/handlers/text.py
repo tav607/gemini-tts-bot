@@ -90,9 +90,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             text=text,
             speakers=analysis.speakers,
             custom_prompt=config.custom_prompt,
+            model=config.tts_model,
         )
 
-        caption = "Dialogue TTS\n"
+        caption = f"Dialogue TTS | Model: {config.tts_model}\n"
         for speaker, voice in analysis.speakers:
             caption += f"• {speaker}: {voice}\n"
     else:
@@ -105,9 +106,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             text=text,
             voice_name=config.default_voice,
             custom_prompt=config.custom_prompt,
+            model=config.tts_model,
         )
 
-        caption = f"Voice: {config.default_voice}"
+        caption = f"Voice: {config.default_voice} | Model: {config.tts_model}"
 
     # Handle result
     if result.success:
