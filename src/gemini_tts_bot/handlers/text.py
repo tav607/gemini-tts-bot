@@ -2,6 +2,7 @@
 
 import time
 from collections import defaultdict
+from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -113,9 +114,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # Handle result
     if result.success:
-        # Convert PCM to MP3
+        # Convert PCM to M4A
         try:
-            mp3_data = AudioConverter.pcm_to_mp3(result.audio_data)
+            audio_data = AudioConverter.pcm_to_m4a(result.audio_data)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"gemini_tts_{timestamp}.m4a"
+            audio_data.name = filename
             duration = AudioConverter.get_duration_seconds(result.audio_data)
 
             # Delete processing message
@@ -123,11 +127,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
             # Send audio file
             await update.message.reply_audio(
-                audio=mp3_data,
-                title="TTS Audio",
-                performer="Gemini TTS",
+                audio=audio_data,
+                title=filename,
                 caption=caption,
                 duration=int(duration),
+                filename=filename,
             )
 
         except Exception as e:

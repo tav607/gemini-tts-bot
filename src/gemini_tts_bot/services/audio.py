@@ -40,6 +40,31 @@ class AudioConverter:
         return mp3_buffer
 
     @classmethod
+    def pcm_to_m4a(cls, pcm_data: bytes, bitrate: str = "128k") -> io.BytesIO:
+        """
+        Convert PCM audio data to M4A (AAC) format.
+
+        Args:
+            pcm_data: Raw PCM audio bytes (24kHz, mono, 16-bit)
+            bitrate: Audio bitrate (default: 128k)
+
+        Returns:
+            BytesIO containing M4A data
+        """
+        audio = AudioSegment(
+            data=pcm_data,
+            sample_width=cls.SAMPLE_WIDTH,
+            frame_rate=cls.SAMPLE_RATE,
+            channels=cls.CHANNELS,
+        )
+
+        m4a_buffer = io.BytesIO()
+        audio.export(m4a_buffer, format="ipod", bitrate=bitrate)
+        m4a_buffer.seek(0)
+
+        return m4a_buffer
+
+    @classmethod
     def pcm_to_ogg(cls, pcm_data: bytes) -> io.BytesIO:
         """
         Convert PCM audio data to OGG/Opus format.
