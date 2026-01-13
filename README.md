@@ -26,8 +26,8 @@ A Telegram bot that converts text to speech using Google's Gemini TTS API.
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/gemini_tts_bot.git
-   cd gemini_tts_bot
+   git clone https://github.com/yourusername/gemini-tts-bot.git
+   cd gemini-tts-bot
    ```
 
 2. Install dependencies:
@@ -103,7 +103,7 @@ Teacher: There are eight planets.
 ## Project Structure
 
 ```
-gemini_tts_bot/
+gemini-tts-bot/
 ├── src/gemini_tts_bot/
 │   ├── main.py           # Bot entry point
 │   ├── config.py         # Configuration management
